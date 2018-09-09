@@ -5,15 +5,17 @@
 
 #pragma once
 
-#include <SDKDDKVer.h>
-
 #define _CRT_SECURE_NO_WARNINGS
 #include <cstdio>
-#include <tchar.h>
+#include <cstring>
 #include <string>
 #include <emmintrin.h>
 
+#ifdef _WIN32
+#include <SDKDDKVer.h>
+#include <tchar.h>
 #include <Windows.h>
+#endif
 
 #include "input.h"
 

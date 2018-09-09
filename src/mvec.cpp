@@ -7,7 +7,6 @@
 //---------------------------------------------------------------------
 
 #include "stdafx.h"
-#include <Windows.h>
 #include <stdlib.h>
 #include <limits.h>
 #include <stdio.h>

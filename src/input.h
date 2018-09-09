@@ -3,6 +3,40 @@
 //	By ＫＥＮくん
 //----------------------------------------------------------------------------------
 
+// 環境依存部分の定義
+#ifndef _WIN32
+typedef int LONG;
+typedef unsigned char BYTE;
+typedef unsigned int DWORD;
+typedef unsigned short WORD;
+
+// https://msdn.microsoft.com/ja-jp/library/cc371559.aspx
+typedef struct { 
+  WORD  wFormatTag; 
+  WORD  nChannels; 
+  DWORD nSamplesPerSec; 
+  DWORD nAvgBytesPerSec; 
+  WORD  nBlockAlign; 
+  WORD  wBitsPerSample; 
+  WORD  cbSize; 
+} WAVEFORMATEX;
+
+// https://msdn.microsoft.com/ja-jp/library/cc352308.aspx
+typedef struct tagBITMAPINFOHEADER {
+    DWORD  biSize;
+    LONG   biWidth;
+    LONG   biHeight;
+    WORD   biPlanes;
+    WORD   biBitCount;
+    DWORD  biCompression;
+    DWORD  biSizeImage;
+    LONG   biXPelsPerMeter;
+    LONG   biYPelsPerMeter;
+    DWORD  biClrUsed;
+    DWORD  biClrImportant;
+} BITMAPINFOHEADER;
+#endif
+
 //	入力ファイル情報構造体
 typedef struct {
 	int					flag;				//	フラグ
@@ -30,6 +64,7 @@ typedef struct {
 //	入力ファイルハンドル
 typedef void*	INPUT_HANDLE;
 
+#ifdef _WIN32
 //	入力プラグイン構造体
 typedef struct {
 	int		flag;				//	フラグ
@@ -80,6 +115,7 @@ typedef struct {
 								//	戻り値		: TRUEなら成功
 	int		reserve[16];
 } INPUT_PLUGIN_TABLE;
+
 #define	INPUT_PLUGIN_FLAG_VIDEO		1
 #define	INPUT_PLUGIN_FLAG_AUDIO		2
 
@@ -92,3 +128,4 @@ int func_read_video( INPUT_HANDLE ih,int frame,void *buf );
 int func_read_audio( INPUT_HANDLE ih,int start,int length,void *buf );
 BOOL func_is_keyframe( INPUT_HANDLE ih,int frame );
 BOOL func_config( HWND hwnd,HINSTANCE dll_hinst );
+#endif

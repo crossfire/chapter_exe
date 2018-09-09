@@ -4,7 +4,21 @@
 
 #include "stdafx.h"
 
-interface Source {
+#include <memory>
+#include <vector>
+#include <algorithm>
+#include <iostream>
+
+// 環境依存部分の定義
+#ifndef _WIN32
+#define _FILE_OFFSET_BITS 64
+typedef uint64_t __int64;
+template<typename T, typename S> inline T min(T a, S b) { return (b > a) ? a : b; }
+template<typename T> static void ZeroMemory(T* dst, size_t len){ memset(dst, 0, len); }
+constexpr int WAVE_FORMAT_PCM = 0x0001; // Microsoft PCM format
+#endif
+
+class Source {
 public:
 	virtual void init(char *infile) = 0;
 
@@ -40,6 +54,7 @@ public:
 	int read_audio(int frame, short *buf) { return 0; };
 };
 
+#ifdef _WIN32
 // auiを使ったソース
 class AuiSource : public NullSource {
 protected:
@@ -144,6 +159,7 @@ public:
 		return _ipt->func_read_audio(_ih, start, end - start, buf);
 	}
 };
+#endif
 
 // *.wavソース
 class WavSource : public NullSource {
@@ -199,7 +215,11 @@ public:
 				}
 			} else if (strncmp(buf, "data", 4) == 0){
 				fseek(_f, 4, SEEK_CUR);
+#ifdef _WIN32
 				_start = _ftelli64(_f);
+#else
+        _start = ftello(_f);
+#endif
 				break;
 			} else {
 				fseek(_f, size, SEEK_CUR);
@@ -221,20 +241,21 @@ public:
 		__int64 start = (int)((double)frame * _ip.audio_format->nSamplesPerSec / _ip.rate * _ip.scale);
 		__int64 end = (int)((double)(frame + 1) * _ip.audio_format->nSamplesPerSec / _ip.rate * _ip.scale);
 
+#ifdef _WIN32
 		_fseeki64(_f, _start + start * _fmt.nBlockAlign, SEEK_SET);
+#else
+     fseeko(_f, _start + start * _fmt.nBlockAlign, SEEK_SET);
+#endif
 
 		return (int)fread(buf, _fmt.nBlockAlign, (size_t)(end - start), _f);
 	}
 };
 
+#ifdef _WIN32
 // avisynthにリンクしているので
 #define AVS_LINKAGE_DLLIMPORT
 #include "avisynth.h"
 #pragma comment(lib, "avisynth.lib")
-
-#include <memory>
-#include <vector>
-#include <algorithm>
 
 static void DeleteScriptEnvironment(IScriptEnvironment2* env) {
   if (env) env->DeleteScriptEnvironment();
@@ -345,4 +366,99 @@ public:
 		clip->GetAudio(buf, start, end - start, env_.get());
     return int(end - start);
   }
+};
+#endif
+
+// VapourSynth
+#include <VapourSynth.h>
+#include <VSScript.h>
+#include <VSHelper.h>
+
+class VsSource : public NullSource {
+protected:
+  VSCore* core;
+  VSScript* handle;
+  const VSAPI* env_;
+  VSNodeRef* clip;
+
+  BITMAPINFOHEADER format;
+  WAVEFORMATEX audio_format;
+
+public:
+  VsSource(void) 
+    : NullSource()
+    , format()
+    , audio_format()
+  {
+    vsscript_init();
+		this->env_ = vsscript_getVSApi2(VAPOURSYNTH_API_VERSION);
+  }
+  ~VsSource(){
+    vsscript_finalize();
+  }
+
+  virtual void init(char *infile) {
+      try {
+          if (vsscript_evaluateFile(&this->handle, infile, efSetWorkingDir) != 0)
+            throw "failed to open file";
+          this->core = vsscript_getCore(this->handle);
+          this->clip = vsscript_getOutput(this->handle, 0);
+
+          const VSVideoInfo* vi = this->env_->getVideoInfo(this->clip);
+          
+          // pfGray8 以外は変換
+          if (vi->format->bitsPerSample != 8) throw "8-bit clip only allowed!";
+          if (vi->format->id != pfGray8){
+            auto stdp = this->env_->getPluginById("com.vapoursynth.resize", this->core);
+            auto args = this->env_->createMap();
+            this->env_->propSetNode(args, "clip", this->clip, paReplace);
+            this->env_->propSetInt(args, "format", pfGray8, paReplace);
+            auto ret = this->env_->invoke(stdp, "Bilinear", args);
+            this->env_->freeMap(args);
+            if (const char* err = this->env_->getError(ret)) throw err;
+						this->env_->freeNode(this->clip);
+						this->clip = this->env_->propGetNode(ret, "clip", 0, nullptr);
+						this->env_->freeMap(ret);
+          }
+
+          // 面倒なので使ってるメンバだけ
+          _ip.flag = INPUT_INFO_FLAG_VIDEO_RANDOM_ACCESS | INPUT_INFO_FLAG_VIDEO;
+          _ip.rate = vi->fpsNum;
+          _ip.scale = vi->fpsDen;
+          _ip.n = vi->numFrames;
+          _ip.format = &this->format;
+          format.biHeight = vi->height;
+          format.biWidth = vi->width;
+      }
+      catch (const char* str) {
+        std::cerr << str << std::endl;
+      }
+  }
+
+  bool has_video() {
+    return (_ip.flag & INPUT_INFO_FLAG_VIDEO) != 0;
+  }
+  bool has_audio() {
+    return false;
+  }
+
+  INPUT_INFO &get_input_info() {
+    return _ip;
+  }
+
+  bool read_video_y8(int frame, unsigned char *luma) {
+    const VSFrameRef* pframe = this->env_->getFrame(frame, this->clip, nullptr, 0);
+    auto src = this->env_->getReadPtr(pframe, 0);
+		int stride = this->env_->getStride(pframe, 0);
+
+		int w = _ip.format->biWidth & 0xFFFFFFF0;
+    int h = _ip.format->biHeight & 0xFFFFFFF0;
+    vs_bitblt(luma, w, src, stride, w, h);
+
+    return true;
+  }
+
+	int read_audio(int frame, short* buf){
+		return -1;
+	}
 };

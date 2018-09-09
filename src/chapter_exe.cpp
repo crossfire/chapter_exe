@@ -3,7 +3,30 @@
 
 #include "stdafx.h"
 #include "source.h"
+#ifdef _WIN32
 #include "faw.h"
+#endif
+#include <iostream>
+
+// 環境依存部分の定義
+#ifndef _WIN32
+#include <unicode/unistr.h>
+typedef long long LONGLONG;
+typedef char TCHAR;
+typedef char _TCHAR;
+// cp932(sjis) -> utf8
+static inline const char* _T(const char* str) {
+  icu::UnicodeString src(str, "cp932");
+  int len = src.extract(0, src.length(), nullptr, "utf8");
+  auto ptr = new char[len+1];
+  src.extract(0, src.length(), &ptr[0], "utf8");
+  return ptr;
+}
+static inline int _stricmp(const char* s1, const char *s2) { return strcasecmp(s1, s2); }
+static inline void* _aligned_malloc(size_t size, size_t alignment) { void* a = nullptr; posix_memalign(&a, alignment, size); return a; }
+static inline void _aligned_free(void* ptr) { free(ptr); }
+#define sprintf_s sprintf
+#endif
 
 // mvec.c
 #define FRAME_PICTURE	1
@@ -49,16 +72,22 @@ void write_chapter_debug(FILE *f, int nchap, int frame, TCHAR *title, INPUT_INFO
 }
 
 void print_help() {
-	printf(_T("usage:\n"));
-	printf(_T("\tchapter_exe.exe -v input_avs -o output_txt\n"));
-	printf(_T("params:\n\t-v 入力画像ファイル\n\t-a 入力音声ファイル（省略時は動画と同じファイル）\n\t-m 無音判定閾値（1～2^15)\n\t-s 最低無音フレーム数\n\t-b 無音シーン検索間隔数\n"));
-	printf(_T("\t-e 無音前後検索拡張フレーム数\n"));
+    printf(_T("usage:\n"));
+    printf(_T("\tchapter_exe.exe -v input_avs -o output_txt\n"));
+    printf(_T("params:\n\t-v 入力画像ファイル\n\t-a 入力音声ファイル（省略時は動画と同じファイル）\n\t-m 無音判定閾値（1～2^15)\n\t-s 最低無音フレーム数\n\t-b 無音シーン検索間隔数\n"));
+    printf(_T("\t-e 無音前後検索拡張フレーム数\n"));
 }
 
+#ifdef _WIN32
 int _tmain(int argc, _TCHAR* argv[])
+#else
+int main(int argc, char** argv)
+#endif
 {
+#ifdef _WIN32
 	// メモリリークチェック
 	_CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
+#endif
 
 	//printf(_T("chapter.auf pre loading program.\n"));
 
@@ -92,7 +121,7 @@ int _tmain(int argc, _TCHAR* argv[])
 				i++;
 				break;
 			case 'm':
-				setmute = atoi(argv[i+1]);
+				setmute = atoi(static_cast<char*>(argv[i+1]));
 				i++;
 				break;
 			case 's':
@@ -138,17 +167,23 @@ int _tmain(int argc, _TCHAR* argv[])
 		return -1;
 	}
 
-	printf(_T("Setting\n"));
-	printf(_T("\tvideo: %s\n\taudio: %s\n\tout: %s\n"), avsv, (strcmp(avsv, avsa) ? avsa : "(within video source)"), out);
-	printf(_T("\tmute: %d seri: %d bmute: %d emute: %d\n"), setmute, setseri, breakmute, extendmute);
 
-	//printf("Loading plugins.\n");
+
+  printf(_T("Setting\n"));
+  printf(_T("\tvideo: %s\n\taudio: %s\n\tout: %s\n"), avsv, (strcmp(avsv, avsa) ? avsa : "(within video source)"), out);
+  printf(_T("\tmute: %d seri: %d bmute: %d emute: %d\n"), setmute, setseri, breakmute, extendmute);
+	
+//printf("Loading plugins.\n");
 
 	std::shared_ptr<Source> video;
   std::shared_ptr<Source> audio;
 	try {
 		//AuiSource *srcv = new AuiSource();
+#ifdef _WIN32
     auto srcv = std::shared_ptr<AvsSource>(new AvsSource());
+#else
+    auto srcv = std::make_shared<VsSource>();
+#endif
 		srcv->init(avsv);
 		if (srcv->has_video() == false) {
 			throw "Error: No Video Found!";
@@ -171,19 +206,21 @@ int _tmain(int argc, _TCHAR* argv[])
         }
 			} else {
 				// aui
+#ifdef _WIN32
 				auto aud = std::unique_ptr<AuiSource>(new AuiSource());
 				aud->init(avsa);
         if (aud->has_audio()) {
           audio = std::move(aud);
           audio->set_rate(video->get_input_info().rate, video->get_input_info().scale);
         }
+#endif
 			}
 		}
 
 		if (audio == NULL) {
 			throw "Error: No Audio!";
 		}
-	} catch(char *s) {
+	} catch(const char *s) {
 		printf("%s\n", s);
 		return -1;
 	}
@@ -196,7 +233,11 @@ int _tmain(int argc, _TCHAR* argv[])
 	}
 
 	FILE *fout;
+#ifdef _WIN32
 	if (fopen_s(&fout, out, "w") != 0) {
+#else
+  if ((fout = fopen(out, "w")) == nullptr){
+#endif
 		printf("Error: output file open failed.");
 		return -1;
 	}
@@ -212,6 +253,7 @@ int _tmain(int argc, _TCHAR* argv[])
 	int n = vii.n;
 
 	// FAW check
+#ifdef _WIN32
 	do {
 		CFAW cfaw;
 		int faws = 0;
@@ -233,6 +275,7 @@ int _tmain(int argc, _TCHAR* argv[])
 			}
 		}
 	} while(0);
+#endif
 
 	if (thin_audio_read <= 0){
 		printf("read audio : serial\n");
@@ -314,8 +357,12 @@ int _tmain(int argc, _TCHAR* argv[])
 	// ソースを解放
 	video = nullptr;
 	audio = nullptr;
+  
+  fclose(fout);
 
+#ifdef _WIN32
   _CrtDumpMemoryLeaks();
+#endif
 
 	return 0;
 }
@@ -701,29 +748,29 @@ int proc_scene_change(
 
 		//--- 結果表示 ---
 		for(int k=0; k<=msel; k++){
-			char *mark = "";
+			const char *mark = "";
 			if (d_max_en[k] == 0) continue;		// シーンチェンジ候補から外れた場合次に
 
 			if (d_max_scrate[k] < THRES_RATE2){	// 全く変化のないシーンチェンジ
-				mark = "＿";
+				mark = _T("＿");
 			}
 			else if ((flag_force_sc > 0 && (k != msel_mark || mark_type == 0)) ||	// 指定無音区間内シーンチェンジ地点
 					  (d_max_scrate[k] < THRES_RATE2 && k != msel_max)){			// 動きなしで残っている場合
-				mark = "○";
+				mark = _T("○");
 			}
 			else if (k == msel_mark){
 				if (idx > 1 && mark_type == 15) {
-					mark = "★";
+					mark = _T("★");
 				} else if (idx > 1 && mark_type == 30) {
-					mark = "★★";
+					mark = _T("★★");
 				} else if (idx > 1 && mark_type == 45) {
-					mark = "★★★";
+					mark = _T("★★★");
 				} else if (idx > 1 && mark_type == 60) {
-					mark = "★★★★";
+					mark = _T("★★★★");
 				}
 			}
 			else{	// 無音区間内で第2候補シーンチェンジ
-					mark = "＠";
+					mark = _T("＠");
 			}
 			printf("\t SCPos: %d %s\n", d_max_pos[k], mark);
 			ncount_sc ++;
