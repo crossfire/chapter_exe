@@ -7,7 +7,7 @@
 #ifndef _WIN32
 typedef long LONG;
 typedef unsigned char BYTE;
-typedef unsigned int DWORD;
+typedef unsigned long DWORD;
 typedef unsigned short WORD;
 
 // https://msdn.microsoft.com/ja-jp/library/cc371559.aspx
