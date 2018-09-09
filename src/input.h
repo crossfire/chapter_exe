@@ -5,7 +5,7 @@
 
 // ŠÂ‹«ˆË‘¶•”•ª‚Ì’è‹`
 #ifndef _WIN32
-typedef int LONG;
+typedef long LONG;
 typedef unsigned char BYTE;
 typedef unsigned int DWORD;
 typedef unsigned short WORD;
