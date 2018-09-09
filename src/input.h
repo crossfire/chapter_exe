@@ -5,9 +5,10 @@
 
 // ŠÂ‹«ˆË‘¶•”•ª‚Ì’è‹`
 #ifndef _WIN32
-typedef long LONG;
+#include <stdint.h>
+typedef int32_t LONG;
 typedef unsigned char BYTE;
-typedef unsigned long DWORD;
+typedef uint32_t DWORD;
 typedef unsigned short WORD;
 
 // https://msdn.microsoft.com/ja-jp/library/cc371559.aspx
